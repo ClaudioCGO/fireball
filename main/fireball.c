@@ -13,6 +13,11 @@
 #define MED_SPEED 1000
 #define TURN_SPEED 1200
 
+#define THRESHOLD_LE 2200 // W = 1200; B = 3150; T = 2200
+#define THRESHOLD_LI 1220 // W = 560; B = 1880; T = 1220
+#define THRESHOLD_RI 800  // W = 360; B = 1250; T = 800
+#define THRESHOLD_RE 2100 // W = 1200; B = 3100; T = 2100
+
 static const char *TAG = "fireball";
 static int le, li, ri, re;
 static int last_error = 0;
@@ -25,10 +30,10 @@ void drive_task(void *pvParameters)
   {
     ir_read(&le, &li, &ri, &re);
 
-    bool b_le = le > 2200; // W = 1200; B = 3150; T = 2200
-    bool b_li = li > 1220; // W = 560; B = 1880; T = 1220
-    bool b_ri = ri > 800; // W = 360; B = 1250; T = 800
-    bool b_re = re > 2100; // W = 1200; B = 3100; T = 2100
+    bool b_le = le > THRESHOLD_LE;
+    bool b_li = li > THRESHOLD_LI;
+    bool b_ri = ri > THRESHOLD_RI;
+    bool b_re = re > THRESHOLD_RE;
 
 //  bool b_le = le > 900;
 //  bool b_li = li > 720;

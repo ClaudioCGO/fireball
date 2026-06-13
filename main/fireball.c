@@ -38,7 +38,7 @@ void drive_task(void *pvParameters)
     if (b_le && b_li && b_ri && b_re)
     {
       finish_counter++;
-      ESP_LOGI(TAG, "DO NOTHING... %d", finish_counter);
+      ESP_LOGI(TAG, "DO NOTHING... Count: %d", finish_counter);
       if (finish_counter >= FINISH_TIME)
       {
         motors_brake();

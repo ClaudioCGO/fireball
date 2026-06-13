@@ -25,98 +25,96 @@ static int last_error = 0;
 static int finish_counter = 0;
 static volatile bool finished = false;
 
-void drive_task(void *pvParameters)
-{
-  while (!finished)
-  {
-    ir_read(&le, &li, &ri, &re);
+void drive_task(void *pvParameters) {
+    while (!finished) {
+        ir_read(&le, &li, &ri, &re);
 
-    bool b_le = le > THRESHOLD_LE;
-    bool b_li = li > THRESHOLD_LI;
-    bool b_ri = ri > THRESHOLD_RI;
-    bool b_re = re > THRESHOLD_RE;
+        bool b_le = le > THRESHOLD_LE;
+        bool b_li = li > THRESHOLD_LI;
+        bool b_ri = ri > THRESHOLD_RI;
+        bool b_re = re > THRESHOLD_RE;
 
 
-    if (b_le && b_li && b_ri && b_re) {
-      finish_counter++;
+        if (b_le && b_li && b_ri && b_re) {
+            finish_counter++;
 
-      ESP_LOGI(TAG, "DO NOTHING AND ACCELERATE | Count: %d", finish_counter);
-      motors_forward();
-      set_PWM(MAX_SPEED, MAX_SPEED);
-      
-      if (finish_counter >= FINISH_TIME) {
-        motors_brake();
-        set_PWM(0, 0);
-        finished = true;
-        ESP_LOGI(TAG, "Ended!");
-      }
+            ESP_LOGI(TAG, "DO NOTHING AND ACCELERATE | Count: %d", finish_counter);
+            motors_forward();
+            set_PWM(MAX_SPEED, MAX_SPEED);
+        
+            if (finish_counter >= FINISH_TIME) {
+                ESP_LOGI(TAG, "Ended!");
+                motors_brake();
+                set_PWM(0, 0);
+                finished = true;
+            }
+            continue;
+        }
+
+        finish_counter = 0;
+
+        if (b_le) {
+            ESP_LOGI(TAG, "HARD TURN LEFT");
+            motors_yaw_left();
+            set_PWM(TURN_SPEED, TURN_SPEED);
+            last_error = -2;
+            continue;
+        }
+
+        if (b_re) {
+            ESP_LOGI(TAG, "HARD TURN RIGHT");
+            motors_yaw_right();
+            set_PWM(TURN_SPEED, TURN_SPEED);
+            last_error = 2;
+            continue;
+        }
+
+        if (b_li && !b_ri) {
+            ESP_LOGI(TAG, "SMALL TURN LEFT");
+            motors_forward();
+            set_PWM(MED_SPEED, MAX_SPEED);
+            last_error = -1;
+            continue;
+        }
+
+        if (!b_li && b_ri) {
+            ESP_LOGI(TAG, "SMALL TURN RIGHT");
+            motors_forward();
+            set_PWM(MAX_SPEED, MED_SPEED);
+            last_error = 1;
+            continue;
+        }
+
+        if (b_li && b_ri) {
+            ESP_LOGI(TAG, "STRAIGHT");
+            motors_forward();
+            set_PWM(MAX_SPEED, MAX_SPEED);
+            continue;
+        }
+
+
+        if (last_error < 0) {
+            ESP_LOGI(TAG, "SEARCHING LEFT");
+            motors_yaw_left();
+            set_PWM(TURN_SPEED, TURN_SPEED);
+            continue;
+        }
+
+        else if (last_error > 0) {
+            ESP_LOGI(TAG, "SEARCHING RIGHT");
+            motors_yaw_right();
+            set_PWM(TURN_SPEED, TURN_SPEED);
+        }
+        
+        else {
+            ESP_LOGI(TAG, "NOTHING TO SEARCH");
+            motors_brake();
+            set_PWM(0, 0);
+        }
+    
+        ESP_LOGI(TAG,"LE: %d | LI: %d | RI: %d | RE: %d", le, li, ri, re);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
-    else
-    {
-      finish_counter = 0;
-
-      if (b_le)
-      {
-        motors_yaw_left();
-        set_PWM(TURN_SPEED, TURN_SPEED);
-        last_error = -2;
-        ESP_LOGI(TAG, "HARD TURN LEFT");
-      }
-      else
-      if (b_re)
-      {
-        motors_yaw_right();
-        set_PWM(TURN_SPEED, TURN_SPEED);
-        last_error = 2;
-        ESP_LOGI(TAG, "HARD TURN RIGHT");
-      }
-      else
-      if (b_li && !b_ri)
-      {
-        motors_forward();
-        set_PWM(MED_SPEED, MAX_SPEED);
-        last_error = -1;
-        ESP_LOGI(TAG, "SMALL TURN LEFT");
-      }
-      else
-      if (!b_li && b_ri)
-      {
-        motors_forward();
-        set_PWM(MAX_SPEED, MED_SPEED);
-        last_error = 1;
-        ESP_LOGI(TAG, "SMALL TURN RIGHT");
-      }
-      else
-      if (b_li && b_ri)
-      {
-        motors_forward();
-        set_PWM(MAX_SPEED, MAX_SPEED);
-        ESP_LOGI(TAG, "STRAIGHT");
-      }
-      else
-      if (last_error < 0)
-      {
-        motors_yaw_left();
-        set_PWM(TURN_SPEED, TURN_SPEED);
-        ESP_LOGI(TAG, "SEARCHING LEFT");
-      }
-      else
-      if (last_error > 0)
-      {
-        motors_yaw_right();
-        set_PWM(TURN_SPEED, TURN_SPEED);
-        ESP_LOGI(TAG, "SEARCHING RIGHT");
-      }
-      else
-      {
-        motors_brake();
-        set_PWM(0, 0);
-        ESP_LOGI(TAG, "NOTHING TO SEARCH");
-      }
-    }
-    ESP_LOGI(TAG,"LE: %d | LI: %d | RI: %d | RE: %d", le, li, ri, re);
-    vTaskDelay(pdMS_TO_TICKS(10));
-  }
   vTaskDelete(NULL);
 }
 

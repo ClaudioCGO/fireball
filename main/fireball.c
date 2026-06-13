@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "esp_log.h"
 #include "board.h"
 #include "motors.h"
@@ -19,98 +20,127 @@
 #define MED_SPEED 1800
 #define TURN_SPEED 2000
 
-static int le, li, ri, re;
-static int last_error = 0;
-static int finish_counter = 0;
+typedef struct {
+    bool b_le;
+    bool b_li;
+    bool b_ri;
+    bool b_re;
+} sensor_data_t;
+
+QueueHandle_t sensor_queue;
+
 static volatile bool finished = false;
 
-void drive_task(void *pvParameters)
-{
-  while (!finished)
-    {
-      ir_read(&le, &li, &ri, &re);
 
-      bool b_le = le > THRESHOLD_LE;
-      bool b_li = li > THRESHOLD_LI;
-      bool b_ri = ri > THRESHOLD_RI;
-      bool b_re = re > THRESHOLD_RE;
+void sensor_task(void *pvParameters) {
+    int le, li, ri, re;
+    sensor_data_t current_reading;
 
-      if (b_le && b_li && b_ri && b_re)
-      {
-        finish_counter++;
-        printf("DO NOTHING... %d    ", finish_counter);
-        if (finish_counter >= FINISH_TIME)
-        {
-          motors_brake();
-          set_PWM(0, 0);
-          finished = true;
-          printf("Ended!");
+    while(!finished) {
+        ir_read(&le, &li, &ri, &re);
+
+        current_reading.b_le = le > THRESHOLD_LE;
+        current_reading.b_li = li > THRESHOLD_LI;
+        current_reading.b_ri = ri > THRESHOLD_RI;
+        current_reading.b_re = re > THRESHOLD_RE;
+
+        xQueueSend(sensor_queue, &current_reading, portMAX_DELAY);
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    vTaskDelete(NULL);
+}
+
+void control_task(void *pvParameters) {
+    sensor_data_t data;
+    int last_error = 0;
+    int finish_counter = 0;
+
+    while(!finished) {
+        if (xQueueReceive(sensor_queue, &data, portMAX_DELAY) != pdPASS) {
+            continue;
         }
-      }
-      else
-      {
+
+        if (data.b_le && data.b_li && data.b_ri && data.b_re) {
+            finish_counter++;
+
+            printf("DO NOTHING and go forward... %d    ", finish_counter);
+            motors_forward();
+            set_PWM(MAX_SPEED, MAX_SPEED);
+
+            if (finish_counter >= FINISH_TIME) {
+                motors_brake();
+                set_PWM(0, 0);
+                finished = true;
+                printf("Ended!");
+            }
+            continue;
+        }
+
+
         finish_counter = 0;
 
-        if (b_le) {
-          motors_yaw_left();
-          set_PWM(TURN_SPEED, TURN_SPEED);
-          last_error = -2;
-          printf("HARD TURN LEFT   ");
+
+        if (data.b_le) {
+            printf("HARD TURN LEFT   ");
+            motors_yaw_left();
+            set_PWM(TURN_SPEED, TURN_SPEED);
+            last_error = -2;
+            continue;
         }
-        else if (b_re)
-        {
-          motors_yaw_right();
-          set_PWM(TURN_SPEED, TURN_SPEED);
-          last_error = 2;
-          printf("HARD TURN RIGHT   ");
-        } else if (b_li && !b_ri) {
-                motors_forward();
-                set_PWM(MED_SPEED, MAX_SPEED);
-                last_error = -1;
-                printf("SMALL TURN LEFT   ");
-            }
 
-            else if (!b_li && b_ri) {
-                motors_forward();
-                set_PWM(MAX_SPEED, MED_SPEED);
-                last_error = 1;
-                printf("SMALL TURN RIGHT   ");
-            }
-
-            else if (b_li && b_ri) {
-                motors_forward();
-                set_PWM(MAX_SPEED, MAX_SPEED);
-                printf("STRAIGHT   ");
-            }
-
-            else {
-                if (last_error < 0) {
-                    motors_yaw_left();
-                    set_PWM(TURN_SPEED, TURN_SPEED);
-                    printf("SEARCHING LEFT   ");
-                }
-
-                else if (last_error > 0) {
-                    motors_yaw_right();
-                    set_PWM(TURN_SPEED, TURN_SPEED);
-                    printf("SEARCHING RIGHT   ");     
-                }
-
-                else {
-                    motors_brake();
-                    set_PWM(0, 0);
-                    printf("NOTHING TO SEARCH   ");
-                }
-            }
+        if (data.b_re) {
+            printf("HARD TURN RIGHT   ");
+            motors_yaw_right();
+            set_PWM(TURN_SPEED, TURN_SPEED);
+            last_error = 2;
+            continue;
         }
-      
-      vTaskDelay(pdMS_TO_TICKS(100));
 
-      }
-    
+        if (data.b_li && !data.b_ri) {
+            printf("SMALL TURN LEFT   ");
+            motors_forward();
+            set_PWM(MED_SPEED, MAX_SPEED);
+            last_error = -1;
+            continue;
+        }
+
+        if (!data.b_li && data.b_ri) {
+            printf("SMALL TURN RIGHT   ");
+            motors_forward();
+            set_PWM(MAX_SPEED, MED_SPEED);
+            last_error = 1;
+            continue;
+        }
+
+        if (data.b_li && data.b_ri) {
+            printf("STRAIGHT   ");
+            motors_forward();
+            set_PWM(MAX_SPEED, MAX_SPEED);
+            continue;
+        }
+
+
+        // Searching Logic
+        if (last_error < 0) {
+            printf("SEARCHING LEFT   ");
+            motors_yaw_left();
+            set_PWM(TURN_SPEED, TURN_SPEED);
+        }
+        else if (last_error > 0) {
+            printf("SEARCHING RIGHT   ");
+            motors_yaw_right();
+            set_PWM(TURN_SPEED, TURN_SPEED);     
+        }
+        else {
+            printf("NOTHING TO SEARCH   ");
+            motors_brake();
+            set_PWM(0, 0);
+        }
+    }
     vTaskDelete(NULL);
-
 }
+
 
 void app_main(void)
 {
@@ -127,12 +157,12 @@ void app_main(void)
     printf("WAITING 3 SECONDS...");
     vTaskDelay(pdMS_TO_TICKS(3000));
 
-    xTaskCreate(
-        drive_task,
-        "drive_task",
-        4096,
-        NULL,
-        5,
-        NULL
-    );
+    sensor_queue = xQueueCreate(5, sizeof(sensor_data_t));
+
+    if (sensor_queue != NULL) {
+        xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL);
+        xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 4, NULL);
+    } else {
+        printf("Failed to create Queue!\n");
+    }
 }

@@ -71,6 +71,6 @@ void ir_read(int *le, int *li, int *ri, int *re)
   adc_oneshot_read(adc1_handle, ADC_CHANNEL_1, li);
   adc_oneshot_read(adc1_handle, ADC_CHANNEL_3, re);
   adc_oneshot_read(adc1_handle, ADC_CHANNEL_4, ri);
-  printf("LE: %d | LI: %d | RI: %d | RE: %d\n", *le, *li, *ri, *re);
-  fflush(stdout);
+//  printf("LE: %d | LI: %d | RI: %d | RE: %d\n", *le, *li, *ri, *re);
+//  fflush(stdout);
 }

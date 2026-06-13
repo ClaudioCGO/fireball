@@ -12,14 +12,14 @@ void motors_control_init(void)
 
 static void motor_left_forward(void)
 {
-  gpio_set_level(HB_AIN1,1);
-  gpio_set_level(HB_AIN2,0);
+  gpio_set_level(HB_AIN1,0);
+  gpio_set_level(HB_AIN2,1);
 }
 
 static void motor_left_backward(void)
 {
-  gpio_set_level(HB_AIN1,0);
-  gpio_set_level(HB_AIN2,1);
+  gpio_set_level(HB_AIN1,1);
+  gpio_set_level(HB_AIN2,0);
 }
 
 static void motor_left_coast(void)
@@ -36,14 +36,14 @@ static void motor_left_brake(void)
 
 static void motor_right_forward(void)
 {
-  gpio_set_level(HB_BIN1,1);
-  gpio_set_level(HB_BIN2,0);
+  gpio_set_level(HB_BIN1,0);
+  gpio_set_level(HB_BIN2,1);
 }
 
 static void motor_right_backward(void)
 {
-  gpio_set_level(HB_BIN1,0);
-  gpio_set_level(HB_BIN2,1);
+  gpio_set_level(HB_BIN1,1);
+  gpio_set_level(HB_BIN2,0);
 }
 
 static void motor_right_coast(void)

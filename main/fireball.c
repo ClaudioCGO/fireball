@@ -19,6 +19,7 @@
 #define THRESHOLD_RE 2100 // W = 1200; B = 3100; T = 2100
 
 static const char *TAG = "fireball";
+
 static int le, li, ri, re;
 static int last_error = 0;
 static int finish_counter = 0;
@@ -35,17 +36,15 @@ void drive_task(void *pvParameters)
     bool b_ri = ri > THRESHOLD_RI;
     bool b_re = re > THRESHOLD_RE;
 
-//  bool b_le = le > 900;
-//  bool b_li = li > 720;
-//  bool b_ri = ri > 400;
-//  bool b_re = re > 1480;
 
-    if (b_le && b_li && b_ri && b_re)
-    {
+    if (b_le && b_li && b_ri && b_re) {
       finish_counter++;
-      ESP_LOGI(TAG, "DO NOTHING... Count: %d", finish_counter);
-      if (finish_counter >= FINISH_TIME)
-      {
+
+      ESP_LOGI(TAG, "DO NOTHING AND ACCELERATE | Count: %d", finish_counter);
+      motors_forward();
+      set_PWM(MAX_SPEED, MAX_SPEED);
+      
+      if (finish_counter >= FINISH_TIME) {
         motors_brake();
         set_PWM(0, 0);
         finished = true;
@@ -136,12 +135,5 @@ void app_main(void)
     ESP_LOGI(TAG, "WAITING 3 SECONDS...");
     vTaskDelay(pdMS_TO_TICKS(3000));
 
-    xTaskCreate(
-        drive_task,
-        "drive_task",
-        4096,
-        NULL,
-        5,
-        NULL
-    );
+    xTaskCreate(drive_task, "drive_task", 4096, NULL, 5, NULL);
 }

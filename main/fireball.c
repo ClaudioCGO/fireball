@@ -8,7 +8,11 @@
 #include "pwm.h"
 #include "tcrt5000.h"
 
-#define THRESHOLD 2000
+#define THRESHOLD_LE 900
+#define THRESHOLD_LI 720
+#define THRESHOLD_RI 400
+#define THRESHOLD_RE 1480
+
 #define FINISH_TIME 100
 
 #define MAX_SPEED 2000
@@ -26,10 +30,10 @@ void drive_task(void *pvParameters)
     {
       ir_read(&le, &li, &ri, &re);
 
-      bool b_le = le > 900;
-      bool b_li = li > 720;
-      bool b_ri = ri > 400;
-      bool b_re = re > 1480;
+      bool b_le = le > THRESHOLD_LE;
+      bool b_li = li > THRESHOLD_LI;
+      bool b_ri = ri > THRESHOLD_RI;
+      bool b_re = re > THRESHOLD_RE;
 
       if (b_le && b_li && b_ri && b_re)
       {

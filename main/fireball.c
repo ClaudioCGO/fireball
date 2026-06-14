@@ -58,7 +58,7 @@ void control_task (void *pvParameters) {
     int finish_counter = 0;
    
     while (!finished) {
-        if (xQueueReceive(sensor_queue, &data, pdMS_TO_TICKS(100)) != pdPASS) {
+        if (xQueueReceive(sensor_queue, &data, portMAX_DELAY) != pdPASS) {
             continue;
         }        
 

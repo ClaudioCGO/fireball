@@ -157,7 +157,7 @@ void app_main (void) {
 
     sensor_queue = xQueueCreate(1, sizeof(sensor_data_t));
 
-    if (sensor_queue = NULL) {
+    if (sensor_queue == NULL) {
         ESP_LOGI(TAG, "FAILED TO CREATE QUEUE!");
     }
 

@@ -51,6 +51,8 @@ void sensor_task (void *pvParameters) {
 }
 
 static int calculate_track_error (sensor_data_t data, int current_last_error) {
+    if (data.b_le && data.b_re) return current_last_error;
+    
     if (data.b_le) return -2;                   // Hard Left
     if (data.b_re) return 2;                    // Hard Right
     if (data.b_li && !data.b_ri) return -1;     // Small Left

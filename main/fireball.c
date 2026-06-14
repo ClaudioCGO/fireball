@@ -7,25 +7,21 @@
 #include "motors.h"
 #include "pwm.h"
 #include "tcrt5000.h"
+#include "pid.h"
 
 #define FINISH_TIME 25
 
-#define MAX_SPEED 1200
-#define MED_SPEED 1000
-#define TURN_SPEED 1200
+#define BASE_SPEED 1200
+#define MAX_SPEED 3000
 
 #define THRESHOLD_LE 2200 // W = 1200; B = 3150; T = 2200
 #define THRESHOLD_LI 1220 // W = 560; B = 1880; T = 1220
 #define THRESHOLD_RI 800  // W = 360; B = 1250; T = 800
 #define THRESHOLD_RE 2100 // W = 1200; B = 3100; T = 2100
 
-typedef enum {
-    TRACK_HARD_LEFT     = -2,
-    TRACK_SMALL_LEFT    = -1,
-    TRACK_CENTER        = 0,
-    TRACK_SMALL_RIGHT   = 1,
-    TRACK_HARD_RIGHT    = 2,
-} track_state_t;
+#define KP 15.0f
+#define KI 0.0f
+#define KD 15.0f
 
 typedef struct {
     bool left_ext;
@@ -62,14 +58,14 @@ void sensor_task (void *pvParameters) {
 }
 
 
-static track_state_t calculate_track_error (sensor_data_t data, track_state_t current_last_error) {
+static float calculate_track_error (sensor_data_t data, float current_last_error) {
     if (data.left_ext && data.right_ext) return current_last_error;
 
-    if (data.left_ext) return TRACK_HARD_LEFT;
-    if (data.right_ext) return TRACK_HARD_RIGHT;
-    if (data.left_int && !data.right_int) return TRACK_SMALL_LEFT;
-    if (!data.left_int && data.right_int) return TRACK_SMALL_RIGHT;
-    if (data.left_int && data.right_int) return TRACK_CENTER;
+    if (data.left_ext) return -20.0f;
+    if (data.right_ext) return 20.0f;
+    if (data.left_int && !data.right_int) return -10.0f;
+    if (!data.left_int && data.right_int) return 10.0f;
+    if (data.left_int && data.right_int) return 0.0f;
 
     return current_last_error;
 }
@@ -77,9 +73,12 @@ static track_state_t calculate_track_error (sensor_data_t data, track_state_t cu
 
 void control_task (void *pvParameters) {
     sensor_data_t data;
-    track_state_t current_state = TRACK_CENTER;
+    float current_error = 0.0f;
     int finish_counter = 0;
    
+    pid_controller_t car_pid;
+    pid_init(&car_pid, KP, KI, KD);
+
     while (!finished) {
         if (xQueueReceive(sensor_queue, &data, portMAX_DELAY) != pdPASS) {
             continue;
@@ -90,7 +89,7 @@ void control_task (void *pvParameters) {
 
             ESP_LOGD(TAG, "All black detected | Count: %d", finish_counter);
             motors_forward();
-            set_PWM(MAX_SPEED, MAX_SPEED);
+            set_PWM(BASE_SPEED, BASE_SPEED);
         
             if (finish_counter >= FINISH_TIME) {
                 ESP_LOGI(TAG, "Track Ended!");
@@ -102,47 +101,24 @@ void control_task (void *pvParameters) {
 
         finish_counter = 0;
 
-        current_state = calculate_track_error(data, current_state);
+        current_error = calculate_track_error(data, current_error);
 
-        switch (current_state) {
-            case TRACK_HARD_LEFT:
-                ESP_LOGD(TAG, "HARD TURN LEFT");
-                motors_yaw_left();
-                set_PWM(TURN_SPEED, TURN_SPEED);
-                break;
+        float adjustment = pid_compute(&car_pid, current_error);
 
-            case TRACK_HARD_RIGHT:
-                ESP_LOGD(TAG, "HARD TURN RIGHT");
-                motors_yaw_right();
-                set_PWM(TURN_SPEED, TURN_SPEED);
-                break;
+        int left_pwm = BASE_SPEED + adjustment;
+        int right_pwm = BASE_SPEED - adjustment;
 
-            case TRACK_SMALL_LEFT:
-                ESP_LOGD(TAG, "SMALL TURN LEFT");
-                motors_forward();
-                set_PWM(MED_SPEED, MAX_SPEED);
-                break;
+        if (left_pwm > MAX_SPEED) left_pwm = MAX_SPEED;
+        if (left_pwm < 0) left_pwm = 0; 
+        
+        if (right_pwm > MAX_SPEED) right_pwm = MAX_SPEED;
+        if (right_pwm < 0) right_pwm = 0;
 
-            case TRACK_SMALL_RIGHT:
-                ESP_LOGD(TAG, "SMALL TURN RIGHT");
-                motors_forward();
-                set_PWM(MAX_SPEED, MED_SPEED);
-                break;
-
-            case TRACK_CENTER:
-                ESP_LOGD(TAG, "STRAIGHT");
-                motors_forward();
-                set_PWM(MAX_SPEED, MAX_SPEED);
-                break;
-
-            default:
-                ESP_LOGW(TAG, "UNHANDLED STATE, BRAKING");
-                motors_brake();
-                set_PWM(0, 0);
-                break;
-        }
+        ESP_LOGD(TAG, "Err: %.1f | Adj: %.1f | L: %d | R: %d", current_error, adjustment, left_pwm, right_pwm);
+        motors_forward();
+        set_PWM(left_pwm, right_pwm);
     }
-
+    
     motors_brake();
     set_PWM(0, 0);
     ESP_LOGI(TAG, "Control task exiting.");

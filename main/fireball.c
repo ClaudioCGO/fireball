@@ -36,14 +36,18 @@ void sensor_task (void *pvParameters) {
     sensor_data_t current_reading;
 
     while (!finished) {
-        ir_read(&le, &li, &ri, &re);
+        if (ir_read(&le, &li, &ri, &re) == ESP_OK) {
+            current_reading.b_le = le > THRESHOLD_LE;
+            current_reading.b_li = li > THRESHOLD_LI;
+            current_reading.b_ri = ri > THRESHOLD_RI;
+            current_reading.b_re = re > THRESHOLD_RE;
 
-        current_reading.b_le = le > THRESHOLD_LE;
-        current_reading.b_li = li > THRESHOLD_LI;
-        current_reading.b_ri = ri > THRESHOLD_RI;
-        current_reading.b_re = re > THRESHOLD_RE;
+            xQueueOverwrite(sensor_queue, &current_reading);
+        }
 
-        xQueueOverwrite(sensor_queue, &current_reading);
+        else {
+            ESP_LOGE(TAG, "IR read failed. Skipping this cycle.");
+        }
 
         //ESP_LOGI(TAG,"LE: %d | LI: %d | RI: %d | RE: %d", le, li, ri, re);
         vTaskDelay(pdMS_TO_TICKS(10));

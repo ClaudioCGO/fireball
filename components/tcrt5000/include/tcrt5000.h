@@ -3,4 +3,4 @@
 #include "esp_adc/adc_oneshot.h"
 
 void init_adc_channels(void);
-void ir_read(int *le, int *li, int *ri, int *re);
+esp_err_t ir_read(int *le, int *li, int *ri, int *re);

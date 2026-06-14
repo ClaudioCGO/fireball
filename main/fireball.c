@@ -8,7 +8,7 @@
 #include "pwm.h"
 #include "tcrt5000.h"
 
-#define FINISH_TIME 100
+#define FINISH_TIME 25
 
 #define MAX_SPEED 1200
 #define MED_SPEED 1000
@@ -30,6 +30,7 @@ QueueHandle_t sensor_queue;
 static const char *TAG = "fireball";
 static volatile bool finished = false;
 
+
 void sensor_task (void *pvParameters) {
     int le, li, ri, re;
     sensor_data_t current_reading;
@@ -50,9 +51,10 @@ void sensor_task (void *pvParameters) {
     vTaskDelete(NULL);
 }
 
+
 static int calculate_track_error (sensor_data_t data, int current_last_error) {
     if (data.b_le && data.b_re) return current_last_error;
-    
+
     if (data.b_le) return -2;                   // Hard Left
     if (data.b_re) return 2;                    // Hard Right
     if (data.b_li && !data.b_ri) return -1;     // Small Left
@@ -81,10 +83,9 @@ void control_task (void *pvParameters) {
             set_PWM(MAX_SPEED, MAX_SPEED);
         
             if (finish_counter >= FINISH_TIME) {
-                ESP_LOGI(TAG, "Ended!");
-                motors_brake();
-                set_PWM(0, 0);
+                ESP_LOGI(TAG, "Track Ended!");
                 finished = true;
+                break;
             }
             continue;
         }
@@ -120,13 +121,17 @@ void control_task (void *pvParameters) {
                 set_PWM(MAX_SPEED, MAX_SPEED);
                 break;
             default:
-                ESP_LOGI(TAG, "NOTHING TO SEARCH");
+                ESP_LOGI(TAG, "UNHANDLED STATE, BREAKING");
                 motors_brake();
                 set_PWM(0, 0);
                 break;
         }
     }
-  vTaskDelete(NULL);
+
+    motors_brake();
+    set_PWM(0, 0);
+    ESP_LOGI(TAG, "Control task exiting.");
+    vTaskDelete(NULL);
 }
 
 void app_main (void) {
@@ -146,7 +151,7 @@ void app_main (void) {
     sensor_queue = xQueueCreate(1, sizeof(sensor_data_t));
 
     if (sensor_queue == NULL) {
-        ESP_LOGI(TAG, "FAILED TO CREATE QUEUE!");
+        ESP_LOGI(TAG, "FAILED TO CREATE QUEUE! Out of heap memory.");
         return;
     }
 

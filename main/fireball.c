@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdbool.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -28,9 +27,7 @@ typedef struct {
 } sensor_data_t;
 
 QueueHandle_t sensor_queue;
-
 static const char *TAG = "fireball";
-
 static volatile bool finished = false;
 
 void sensor_task (void *pvParameters) {
@@ -47,14 +44,26 @@ void sensor_task (void *pvParameters) {
 
         xQueueOverwrite(sensor_queue, &current_reading);
 
+        //ESP_LOGI(TAG,"LE: %d | LI: %d | RI: %d | RE: %d", le, li, ri, re);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     vTaskDelete(NULL);
 }
 
+static int calculate_track_error (sensor_data_t data, int current_last_error) {
+    if (data.b_le) return -2;                   // Hard Left
+    if (data.b_re) return 2;                    // Hard Right
+    if (data.b_li && !data.b_ri) return -1;     // Small Left
+    if (!data.b_li && data.b_ri) return 1;      // Small Right
+    if (data.b_li && data.b_ri) return 0;       // Center
+
+    return current_last_error;
+}
+
+
 void control_task (void *pvParameters) {
     sensor_data_t data;
-    int last_error = 0;
+    int error = 0;
     int finish_counter = 0;
    
     while (!finished) {
@@ -65,7 +74,7 @@ void control_task (void *pvParameters) {
         if (data.b_le && data.b_li && data.b_ri && data.b_re) {
             finish_counter++;
 
-            ESP_LOGI(TAG, "DO NOTHING AND ACCELERATE | Count: %d", finish_counter);
+            // ESP_LOGI(TAG, "DO NOTHING AND ACCELERATE | Count: %d", finish_counter);
             motors_forward();
             set_PWM(MAX_SPEED, MAX_SPEED);
         
@@ -80,62 +89,39 @@ void control_task (void *pvParameters) {
 
         finish_counter = 0;
 
-        if (data.b_le) {
-            ESP_LOGI(TAG, "HARD TURN LEFT");
-            motors_yaw_left();
-            set_PWM(TURN_SPEED, TURN_SPEED);
-            last_error = -2;
-            continue;
-        }
+        error = calculate_track_error(data, error);
 
-        if (data.b_re) {
-            ESP_LOGI(TAG, "HARD TURN RIGHT");
-            motors_yaw_right();
-            set_PWM(TURN_SPEED, TURN_SPEED);
-            last_error = 2;
-            continue;
-        }
-
-        if (data.b_li && !data.b_ri) {
-            ESP_LOGI(TAG, "SMALL TURN LEFT");
-            motors_forward();
-            set_PWM(MED_SPEED, MAX_SPEED);
-            last_error = -1;
-            continue;
-        }
-
-        if (!data.b_li && data.b_ri) {
-            ESP_LOGI(TAG, "SMALL TURN RIGHT");
-            motors_forward();
-            set_PWM(MAX_SPEED, MED_SPEED);
-            last_error = 1;
-            continue;
-        }
-
-        if (data.b_li && data.b_ri) {
-            ESP_LOGI(TAG, "STRAIGHT");
-            motors_forward();
-            set_PWM(MAX_SPEED, MAX_SPEED);
-            continue;
-        }
-
-        if (last_error < 0) {
-            ESP_LOGI(TAG, "SEARCHING LEFT");
-            motors_yaw_left();
-            set_PWM(TURN_SPEED, TURN_SPEED);
-            continue;
-        }
-
-        else if (last_error > 0) {
-            ESP_LOGI(TAG, "SEARCHING RIGHT");
-            motors_yaw_right();
-            set_PWM(TURN_SPEED, TURN_SPEED);
-        }
-        
-        else {
-            ESP_LOGI(TAG, "NOTHING TO SEARCH");
-            motors_brake();
-            set_PWM(0, 0);
+        switch (error) {
+            case -2:
+                //ESP_LOGI(TAG, "HARD TURN LEFT");
+                motors_yaw_left();
+                set_PWM(TURN_SPEED, TURN_SPEED);
+                break;
+            case 2:
+                //ESP_LOGI(TAG, "HARD TURN RIGHT");
+                motors_yaw_right();
+                set_PWM(TURN_SPEED, TURN_SPEED);
+                break;
+            case -1:
+                //ESP_LOGI(TAG, "SMALL TURN LEFT");
+                motors_forward();
+                set_PWM(MED_SPEED, MAX_SPEED);
+                break;
+            case 1:
+                //ESP_LOGI(TAG, "SMALL TURN RIGHT");
+                motors_forward();
+                set_PWM(MAX_SPEED, MED_SPEED);
+                break;
+            case 0:
+                //ESP_LOGI(TAG, "STRAIGHT");
+                motors_forward();
+                set_PWM(MAX_SPEED, MAX_SPEED);
+                break;
+            default:
+                ESP_LOGI(TAG, "NOTHING TO SEARCH");
+                motors_brake();
+                set_PWM(0, 0);
+                break;
         }
     }
   vTaskDelete(NULL);
@@ -159,10 +145,11 @@ void app_main (void) {
 
     if (sensor_queue == NULL) {
         ESP_LOGI(TAG, "FAILED TO CREATE QUEUE!");
+        return;
     }
 
     else {
-        xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 4, NULL);
-        xTaskCreate(control_task, "control_task", 4096, NULL, 5, NULL);
+        xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 5, NULL);
+        xTaskCreate(control_task, "control_task", 4096, NULL, 4, NULL);
     }
 }

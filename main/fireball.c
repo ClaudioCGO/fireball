@@ -19,11 +19,19 @@
 #define THRESHOLD_RI 800  // W = 360; B = 1250; T = 800
 #define THRESHOLD_RE 2100 // W = 1200; B = 3100; T = 2100
 
+typedef enum {
+    TRACK_HARD_LEFT     = -2,
+    TRACK_SMALL_LEFT    = -1,
+    TRACK_CENTER        = 0,
+    TRACK_SMALL_RIGHT   = 1,
+    TRACK_HARD_RIGHT    = 2,
+} track_state_t;
+
 typedef struct {
-    bool b_le;
-    bool b_li;
-    bool b_ri;
-    bool b_re;
+    bool left_ext;
+    bool left_int;
+    bool right_int;
+    bool right_ext;
 } sensor_data_t;
 
 QueueHandle_t sensor_queue;
@@ -37,33 +45,31 @@ void sensor_task (void *pvParameters) {
 
     while (!finished) {
         if (ir_read(&le, &li, &ri, &re) == ESP_OK) {
-            current_reading.b_le = le > THRESHOLD_LE;
-            current_reading.b_li = li > THRESHOLD_LI;
-            current_reading.b_ri = ri > THRESHOLD_RI;
-            current_reading.b_re = re > THRESHOLD_RE;
+            current_reading.left_ext  = le > THRESHOLD_LE;
+            current_reading.left_int  = li > THRESHOLD_LI;
+            current_reading.right_int = ri > THRESHOLD_RI;
+            current_reading.right_ext = re > THRESHOLD_RE;
 
             xQueueOverwrite(sensor_queue, &current_reading);
-        }
-
-        else {
+        } else {
             ESP_LOGE(TAG, "IR read failed. Skipping this cycle.");
         }
 
-        //ESP_LOGI(TAG,"LE: %d | LI: %d | RI: %d | RE: %d", le, li, ri, re);
+        ESP_LOGD(TAG,"LE: %d | LI: %d | RI: %d | RE: %d", le, li, ri, re);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     vTaskDelete(NULL);
 }
 
 
-static int calculate_track_error (sensor_data_t data, int current_last_error) {
-    if (data.b_le && data.b_re) return current_last_error;
+static track_state_t calculate_track_error (sensor_data_t data, track_state_t current_last_error) {
+    if (data.left_ext && data.right_ext) return current_last_error;
 
-    if (data.b_le) return -2;                   // Hard Left
-    if (data.b_re) return 2;                    // Hard Right
-    if (data.b_li && !data.b_ri) return -1;     // Small Left
-    if (!data.b_li && data.b_ri) return 1;      // Small Right
-    if (data.b_li && data.b_ri) return 0;       // Center
+    if (data.left_ext) return TRACK_HARD_LEFT;
+    if (data.right_ext) return TRACK_HARD_RIGHT;
+    if (data.left_int && !data.right_int) return TRACK_SMALL_LEFT;
+    if (!data.left_int && data.right_int) return TRACK_SMALL_RIGHT;
+    if (data.left_int && data.right_int) return TRACK_CENTER;
 
     return current_last_error;
 }
@@ -71,7 +77,7 @@ static int calculate_track_error (sensor_data_t data, int current_last_error) {
 
 void control_task (void *pvParameters) {
     sensor_data_t data;
-    int error = 0;
+    track_state_t current_state = TRACK_CENTER;
     int finish_counter = 0;
    
     while (!finished) {
@@ -79,10 +85,10 @@ void control_task (void *pvParameters) {
             continue;
         }        
 
-        if (data.b_le && data.b_li && data.b_ri && data.b_re) {
+        if (data.left_ext && data.left_int && data.right_int && data.right_ext) {
             finish_counter++;
 
-            // ESP_LOGI(TAG, "DO NOTHING AND ACCELERATE | Count: %d", finish_counter);
+            ESP_LOGD(TAG, "All black detected | Count: %d", finish_counter);
             motors_forward();
             set_PWM(MAX_SPEED, MAX_SPEED);
         
@@ -96,36 +102,41 @@ void control_task (void *pvParameters) {
 
         finish_counter = 0;
 
-        error = calculate_track_error(data, error);
+        current_state = calculate_track_error(data, current_state);
 
-        switch (error) {
-            case -2:
-                //ESP_LOGI(TAG, "HARD TURN LEFT");
+        switch (current_state) {
+            case TRACK_HARD_LEFT:
+                ESP_LOGD(TAG, "HARD TURN LEFT");
                 motors_yaw_left();
                 set_PWM(TURN_SPEED, TURN_SPEED);
                 break;
-            case 2:
-                //ESP_LOGI(TAG, "HARD TURN RIGHT");
+
+            case TRACK_HARD_RIGHT:
+                ESP_LOGD(TAG, "HARD TURN RIGHT");
                 motors_yaw_right();
                 set_PWM(TURN_SPEED, TURN_SPEED);
                 break;
-            case -1:
-                //ESP_LOGI(TAG, "SMALL TURN LEFT");
+
+            case TRACK_SMALL_LEFT:
+                ESP_LOGD(TAG, "SMALL TURN LEFT");
                 motors_forward();
                 set_PWM(MED_SPEED, MAX_SPEED);
                 break;
-            case 1:
-                //ESP_LOGI(TAG, "SMALL TURN RIGHT");
+
+            case TRACK_SMALL_RIGHT:
+                ESP_LOGD(TAG, "SMALL TURN RIGHT");
                 motors_forward();
                 set_PWM(MAX_SPEED, MED_SPEED);
                 break;
-            case 0:
-                //ESP_LOGI(TAG, "STRAIGHT");
+
+            case TRACK_CENTER:
+                ESP_LOGD(TAG, "STRAIGHT");
                 motors_forward();
                 set_PWM(MAX_SPEED, MAX_SPEED);
                 break;
+
             default:
-                ESP_LOGI(TAG, "UNHANDLED STATE, BREAKING");
+                ESP_LOGW(TAG, "UNHANDLED STATE, BRAKING");
                 motors_brake();
                 set_PWM(0, 0);
                 break;
@@ -137,6 +148,7 @@ void control_task (void *pvParameters) {
     ESP_LOGI(TAG, "Control task exiting.");
     vTaskDelete(NULL);
 }
+
 
 void app_main (void) {
     motors_control_init();
@@ -155,7 +167,7 @@ void app_main (void) {
     sensor_queue = xQueueCreate(1, sizeof(sensor_data_t));
 
     if (sensor_queue == NULL) {
-        ESP_LOGI(TAG, "FAILED TO CREATE QUEUE! Out of heap memory.");
+        ESP_LOGE(TAG, "FAILED TO CREATE QUEUE! Out of heap memory.");
         return;
     }
 
